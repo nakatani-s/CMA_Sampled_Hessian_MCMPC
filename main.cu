@@ -236,7 +236,7 @@ int main(int argc, char **argv)
                 CHECK(cudaMemcpy(deviceData, hostData, sizeof(float) * HORIZON, cudaMemcpyHostToDevice));
             
                 costFromMCMPC = calc_Cost_Cart_and_SinglePole(hostData, hostState, hostParams, hostConstraint, hostWeightMatrix);
-                printf("%dth MCMPC estimation ended\n", t*repeat);
+                // printf("%dth MCMPC estimation ended\n", t*repeat);
             }else{
                 vars = powf(0.95,repeat) * variance; 
                 // 分散共分散行列の更新(CMA-ES)
@@ -263,7 +263,7 @@ int main(int argc, char **argv)
                 // CMAを用いた並列シミュレーション用の関数の作成　←　ここから作成する　（2021.5.12）
                 /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
-                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, vars, deviceParams, deviceConstraint, 
+                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));
                 cudaDeviceSynchronize();
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
@@ -279,23 +279,23 @@ int main(int argc, char **argv)
                 CHECK(cudaMemcpy(deviceData, hostData, sizeof(float) * HORIZON, cudaMemcpyHostToDevice));
                 
                 costFromMCMPC = calc_Cost_Cart_and_SinglePole(hostData, hostState, hostParams, hostConstraint, hostWeightMatrix);
-                printf("%dth MCMPC estimation ended\n", t*repeat);
+                // printf("%dth MCMPC estimation ended\n", t*repeat);
 
                 // ↓↓↓↓　以降の関数は、近傍探索から
                 /* 推定値近傍をサンプル・評価する関数 */
-                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, 
-                    deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));
-                /*MCMPC_Crat_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, deviceWeightMatrix,
-                    thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
+                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
+                    deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
+                MCMPC_Crat_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, deviceWeightMatrix,
+                    thrust::raw_pointer_cast( sort_key_device_vec.data() ));
                 /*MCMPC_Simple_NonLinear_Example<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, deviceWeightMatrix,
                     thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
                 cudaDeviceSynchronize();
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
                 thrust::sort_by_key(sort_key_device_vec.begin(), sort_key_device_vec.end(), indices_device_vec.begin());
                 /*device_QuadHyPlに，最小二乗法の左辺(column)と右辺の行列(テンソル積)計算用のベクトル(tensor)を格納する*/
-                printf("hoge here l 185\n");
+                // printf("hoge here l 185\n");
                 LSM_QHP_make_tensor_vector<<<qhpBlocks, THREAD_PER_BLOCKS>>>(deviceQuadHyPl, deviceInputSeq, thrust::raw_pointer_cast( indices_device_vec.data() ));
-                printf("hoge here l 187\n");
+                // printf("hoge here l 187\n");
                 cudaDeviceSynchronize();
             /* Gmatrix に正規行列（最小二乗法で使用する逆行列の逆行列）*/ 
                 if(numUnknownParamQHP > 1024){
@@ -304,7 +304,7 @@ int main(int argc, char **argv)
                     LSM_QHP_make_regular_matrix<<<numUnknownParamQHP,numUnknownParamQHP>>>(Gmatrix, deviceQuadHyPl, paramsSizeQuadHyperPlane);
                 }
                 cudaDeviceSynchronize();
-                printf("hoge here l 193\n");
+                // printf("hoge here l 193\n");
 
                 // 最小二乗法の結果（ヘシアンの要素＋勾配＋定数）
                 LSM_QHP_make_regular_vector<<<numUnknownParamQHP,1>>>(Rvector, deviceQuadHyPl, paramsSizeQuadHyperPlane);
@@ -336,13 +336,13 @@ int main(int argc, char **argv)
                 LSM_QHP_get_Hessian_Result<<<HORIZON, HORIZON>>>( Hessian, HessElements);
                 CHECK( cudaDeviceSynchronize() );
                 // 行列の転置を計算、ここでは、上三角行列から下三角行列を生成している
-                // 行列が特殊型（上三角or下三角など）出ない場合は、下の関数で行列の転置を計算できる．
+                // 行列が特殊型（上三角or下三角など）ない場合は、下の関数で行列の転置を計算できる．
                 LSM_QHP_transpose<<<HORIZON, HORIZON>>>(transGmatrix, Hessian);
                 cudaDeviceSynchronize();
                 // 上三角行列と下三角行列の要素を調べ、対称行列となるように結合
                 LSM_QHP_make_symmetric<<<HORIZON, HORIZON>>>(transGmatrix, Hessian);
-                // cudaMemcpy(HESSIAN_MATRIX, transGmatrix, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost);
-                // printMatrix(HORIZON,HORIZON,HESSIAN_MATRIX, HORIZON, "HESSIAN");
+                // cudaMemcpy(hostCov, transGmatrix, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost);
+                // printMatrix(HORIZON,HORIZON,hostCov, HORIZON, "HESSIAN");
                 // ヘッシアンの計算まで終了
                 //LSM_Hessian_To_Positive_Symmetric<<<HORIZON, HORIZON>>>(transGmatrix);
 

@@ -42,7 +42,7 @@ __global__ void result_CMA_rank_mu_Update(float *nGradCov, float *initCov, float
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
     float temp;
-    temp =  initCov[id] + learningRate * nGradCov[id];
+    temp =  initCov[id] - learningRate * nGradCov[id];
     __syncthreads();
     nGradCov[id] = temp;
     __syncthreads();

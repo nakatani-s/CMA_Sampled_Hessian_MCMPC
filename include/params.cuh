@@ -16,9 +16,9 @@ params.cuh
 #define DIM_OF_INPUT 1*/
 
 // For Control Cart and Single Pole
-#define TIME 700
-#define ITERATIONS 10
-#define HORIZON 25  //50
+#define TIME 1000
+#define ITERATIONS 2
+#define HORIZON 30  //50
 #define DIM_OF_PARAMETERS 7
 #define DIM_OF_STATES 4
 #define NUM_OF_CONSTRAINTS 4
@@ -31,14 +31,14 @@ params.cuh
 #define THREAD_PER_BLOCKS 10
 
 
-const int sizeOfParaboloidElements = 351; //1326
-const int addTermForLSM = 1149; //sizeOfParaboloidElements + addTermForLSM = THREAD_PER_BLOCKSの定数倍になるように加算する項  4000 - sizeOfParaboloidElements くらい
+const int sizeOfParaboloidElements = 496; //1326
+const int addTermForLSM = 254; //sizeOfParaboloidElements + addTermForLSM = THREAD_PER_BLOCKSの定数倍になるように加算する項  4000 - sizeOfParaboloidElements くらい
 const float neighborVar = 0.8;
 const float interval = 0.01;
 const float variance = 2.0;
-const float invBarrier = 500;
+const float invBarrier = 10000;
 
-const float c_learning_rate = 0.99;
+const float c_learning_rate = 0.8f;
 
 #endif
 // const int 

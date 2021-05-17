@@ -42,8 +42,8 @@ void init_constraint( float *a )
     a[1] = 0.0f;*/
 
     // FOR CONTROL CART AND POLE
-    a[0] = -1.0f;
-    a[1] = 1.0f;
+    a[0] = -0.5f;
+    a[1] = 0.5f;
     a[2] = -0.45f;
     a[3] = 0.45f;
 }

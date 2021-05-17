@@ -193,7 +193,7 @@ __global__ void MCMPC_Crat_and_SinglePole(float *state, curandState *randomSeed,
         stateInThisThreads[3] = stateInThisThreads[3] + (interval * dstateInThisThreads[3]);
         stateInThisThreads[0] = stateInThisThreads[0] + (interval * dstateInThisThreads[0]);
         stateInThisThreads[1] = stateInThisThreads[1] + (interval * dstateInThisThreads[1]);*/
-        for(int sec = 0; sec < 3; sec++){
+        for(int sec = 0; sec < 2; sec++){
             dstateInThisThreads[0] = stateInThisThreads[2];
             dstateInThisThreads[1] = stateInThisThreads[3];
             dstateInThisThreads[2] = Cart_type_Pendulum_ddx(u[t], stateInThisThreads[0], stateInThisThreads[1], stateInThisThreads[2], stateInThisThreads[3], d_param); //ddx
@@ -293,7 +293,7 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
             u[t] = d_constraints[1];
         }
 
-        for(int sec = 0; sec < 3; sec++){
+        for(int sec = 0; sec < 2; sec++){
             dstateInThisThreads[0] = stateInThisThreads[2];
             dstateInThisThreads[1] = stateInThisThreads[3];
             dstateInThisThreads[2] = Cart_type_Pendulum_ddx(u[t], stateInThisThreads[0], stateInThisThreads[1], stateInThisThreads[2], stateInThisThreads[3], d_param); //ddx
