@@ -167,11 +167,11 @@ int main(int argc, char **argv)
     cudaMalloc ((void**)&devInfo, sizeof(int));
 
     /* Variables for CMA-ES */
-    float *hostCov, *deviceCov, *deviceSquareCov, *deviceEigDiag;
+    float /* *hostCov,*/ *deviceCov, *deviceSquareCov, *deviceEigDiag;
     float *deviceCovEig;
-    float *d_work;
+    float *d_work, *d_ws_Hess;
     int lwork = 0;
-    hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
+    // hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
     CHECK(cudaMalloc(&deviceCovEig, sizeof(float) * HORIZON));
     CHECK(cudaMalloc(&deviceCov, sizeof(float) * HORIZON * HORIZON));
     CHECK(cudaMalloc(&deviceSquareCov, sizeof(float) * HORIZON * HORIZON));
@@ -251,7 +251,8 @@ int main(int argc, char **argv)
                 CHECK_CUSOLVER( cusolverDnSsyevd(cusolverH, jobz, uplo, HORIZON, deviceCov, HORIZON, deviceCovEig, d_work, lwork, devInfo), "Failed to get eigenValues of Covariance Matrix" );
                 CHECK( cudaDeviceSynchronize() );
                 // 固有値(deviceCovEig)を（昇順に）対角に並べた対角行列（deviceEigDiag）を生成する関数の実行
-                make_Eigen_Diagonal_Matrix<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceCovEig);
+                // make_Eigen_Diagonal_Matrix<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceCovEig);
+                make_SqrtEigen_Diagonal_Matrix<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceCovEig);
                 
                 // 
                 // W(deviceEigDiag) = P^t(deviceCov) V(deviceEigDiag) を計算する関数  
@@ -350,6 +351,20 @@ int main(int argc, char **argv)
                 LSM_QHP_make_bVector<<<HORIZON, 1>>>(Hvector, ansRvector, numUnknownParamHessian);
 
                 multiply_matrix<<<HORIZON, HORIZON>>>(Hessian, 2.0f, transGmatrix);
+                // 逆行列の計算方法を変更
+#ifdef INVERSE_OPERATION_USING_EIGENVALUE
+                CHECK_CUSOLVER(cusolverDnSsyevd_bufferSize(cusolverH, jobz, uplo, HORIZON, Hessian, HORIZON, deviceCovEig, &lwork),"Failed to compute size of d_workspace for get eigen value for Hessian");
+                CHECK( cudaMalloc((void**)&d_ws_Hess, sizeof(float) * lwork) );
+                CHECK_CUSOLVER( cusolverDnSsyevd(cusolverH, jobz, uplo, HORIZON, Hessian, HORIZON, deviceCovEig, d_ws_Hess, lwork, devInfo), "Failed to compute Eigen values of Hessian");
+                CHECK( cudaDeviceSynchronize() );
+                make_InverseEigen_Diagonal_Matrix<<<HORIZON,  HORIZON>>>(transGmatrix, deviceCovEig);
+                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(Hessian, transGmatrix);
+                CHECK( cudaDeviceSynchronize() );
+                LSM_QHP_transpose<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
+                CHECK( cudaDeviceSynchronize() );
+                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(transGmatrix, invGmHessSsymm);
+                CHECK( cudaDeviceSynchronize() );
+#else
                 CHECK_CUSOLVER(cusolverDnSpotrf_bufferSize(cusolverH, uplo, HORIZON, Hessian, HORIZON, &work_size_season2),"Failed to get bufferSize of Hessian");
                 CHECK( cudaMalloc((void**)&work_space_season2, sizeof(float)*work_size_season2) );
   
@@ -359,6 +374,7 @@ int main(int argc, char **argv)
                 cudaDeviceSynchronize();
                 CHECK_CUSOLVER(cusolverDnSpotrs(cusolverH, uplo, HORIZON, HORIZON, Hessian, HORIZON, invGmHessSsymm, HORIZON, devInfo_season2), "Failed to get inverse Matrix of H");
                 // cudaMemcpy(HESSIAN_MATRIX, invGmHessSsymm, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost);
+#endif
                 multiply_matrix<<<HORIZON, HORIZON>>>(transGmatrix, -1.0f, invGmHessSsymm);
 
                 copy_inputSequences<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceInputSeq, deviceData);

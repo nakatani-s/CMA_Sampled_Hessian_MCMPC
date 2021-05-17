@@ -40,5 +40,6 @@ const float invBarrier = 10000;
 
 const float c_learning_rate = 0.8f;
 
+#define INVERSE_OPERATION_USING_EIGENVALUE
 #endif
 // const int 

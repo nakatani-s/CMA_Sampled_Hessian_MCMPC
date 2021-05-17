@@ -77,7 +77,7 @@ __global__ void setup_Identity_Matrix_overMaxThread(float *IdMat, int Ydimention
     __syncthreads( );
 }*/
 
-__global__ void make_Eigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
+__global__ void make_SqrtEigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
     if(threadIdx.x == blockIdx.x)
@@ -92,6 +92,23 @@ __global__ void make_Eigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
         DiagMat[id] = 0.0f;
     }
     __syncthreads( ); 
+}
+
+__global__ void make_InverseEigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
+{
+    unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
+    if(threadIdx.x == blockIdx.x)
+    {
+        if(VecEig[threadIdx.x] == 0.0f)
+        {
+            DiagMat[id] = 0.0f;
+        }else{
+            DiagMat[id] = 1 / VecEig[threadIdx.x];
+        }
+    }else{
+        DiagMat[id] = 0.0f;
+    }
+    __syncthreads( );
 }
 
 // A * B → B
