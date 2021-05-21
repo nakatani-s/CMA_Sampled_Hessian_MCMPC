@@ -33,13 +33,14 @@ params.cuh
 
 const int sizeOfParaboloidElements = 496; //1326
 const int addTermForLSM = 254; //sizeOfParaboloidElements + addTermForLSM = THREAD_PER_BLOCKSの定数倍になるように加算する項  4000 - sizeOfParaboloidElements くらい
-const float neighborVar = 0.8;
+const float neighborVar = 0.5;
 const float interval = 0.01;
 const float variance = 2.0;
 const float invBarrier = 10000;
 
-const float c_learning_rate = 0.8f;
+const float c_learning_rate = 1.0f;
 
-#define INVERSE_OPERATION_USING_EIGENVALUE
+// #define INVERSE_OPERATION_USING_EIGENVALUE
+#define CMA
 #endif
 // const int 

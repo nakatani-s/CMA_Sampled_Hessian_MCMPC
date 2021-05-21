@@ -112,9 +112,20 @@ __global__ void LSM_QHP_get_Hessian_Result(float *outElements, float *inElements
     }
     if(threadIdx.x != blockIdx.x){
         //outElements[id] = outElements[id] / 2;
-        outElements[id] = temp_here / 2;
+        if(isnan(temp_here))
+        {
+            outElements[id] = outElements[id];
+        }else{
+            outElements[id] = temp_here / 2;
+        }
     }else{
-        outElements[id] = temp_here;
+        if(isnan(temp_here))
+        {
+            // outElements[id] = outElements[id];
+            outElements[id] = 1.0f;
+        }else{
+            outElements[id] = temp_here;
+        }
     }
     //printf("outElements[%d] == %f\n", id, outElements[id]);
     __syncthreads();

@@ -167,11 +167,11 @@ int main(int argc, char **argv)
     cudaMalloc ((void**)&devInfo, sizeof(int));
 
     /* Variables for CMA-ES */
-    float /* *hostCov,*/ *deviceCov, *deviceSquareCov, *deviceEigDiag;
+    float *hostCov, *deviceCov, *deviceSquareCov, *deviceEigDiag;
     float *deviceCovEig;
     float *d_work, *d_ws_Hess;
     int lwork = 0;
-    // hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
+    hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
     CHECK(cudaMalloc(&deviceCovEig, sizeof(float) * HORIZON));
     CHECK(cudaMalloc(&deviceCov, sizeof(float) * HORIZON * HORIZON));
     CHECK(cudaMalloc(&deviceSquareCov, sizeof(float) * HORIZON * HORIZON));
@@ -238,6 +238,7 @@ int main(int argc, char **argv)
                 costFromMCMPC = calc_Cost_Cart_and_SinglePole(hostData, hostState, hostParams, hostConstraint, hostWeightMatrix);
                 // printf("%dth MCMPC estimation ended\n", t*repeat);
             }else{
+#ifdef CMA
                 vars = powf(0.95,repeat) * variance; 
                 // 分散共分散行列の更新(CMA-ES)
                 // cpy_Previous_CovarianceMatrix<<<HORIZON, HORIZON>>>(deviceSquareCov, deviceCov);
@@ -262,10 +263,10 @@ int main(int argc, char **argv)
                 pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceSquareCov);
                 // vars ← 共分散のスケーリングは、当初固定、事後、最終反復時のMCコスト／　最初の反復時のMCコストを採用予定
                 // CMAを用いた並列シミュレーション用の関数の作成　←　ここから作成する　（2021.5.12）
-                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, 
-                    deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
-                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
+                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 0.01 * neighborVar, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));
+                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
+                    deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
                 cudaDeviceSynchronize();
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
                 thrust::sort_by_key(sort_key_device_vec.begin(), sort_key_device_vec.end(), indices_device_vec.begin());
@@ -281,7 +282,7 @@ int main(int argc, char **argv)
                 
                 costFromMCMPC = calc_Cost_Cart_and_SinglePole(hostData, hostState, hostParams, hostConstraint, hostWeightMatrix);
                 // printf("%dth MCMPC estimation ended\n", t*repeat);
-
+#endif
                 // ↓↓↓↓　以降の関数は、近傍探索から
                 /* 推定値近傍をサンプル・評価する関数 */
                 /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
@@ -358,12 +359,15 @@ int main(int argc, char **argv)
                 CHECK_CUSOLVER( cusolverDnSsyevd(cusolverH, jobz, uplo, HORIZON, Hessian, HORIZON, deviceCovEig, d_ws_Hess, lwork, devInfo), "Failed to compute Eigen values of Hessian");
                 CHECK( cudaDeviceSynchronize() );
                 make_InverseEigen_Diagonal_Matrix<<<HORIZON,  HORIZON>>>(transGmatrix, deviceCovEig);
-                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(Hessian, transGmatrix);
-                CHECK( cudaDeviceSynchronize() );
                 LSM_QHP_transpose<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
+                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(invGmHessSsymm, transGmatrix);
+                CHECK( cudaDeviceSynchronize() );
+                // LSM_QHP_transpose<<<HORIZON, HORIZON>>>(Hessian, invGmHessSsymm);
+                copy_device_Matrix<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
                 CHECK( cudaDeviceSynchronize() );
                 pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(transGmatrix, invGmHessSsymm);
                 CHECK( cudaDeviceSynchronize() );
+                
 #else
                 CHECK_CUSOLVER(cusolverDnSpotrf_bufferSize(cusolverH, uplo, HORIZON, Hessian, HORIZON, &work_size_season2),"Failed to get bufferSize of Hessian");
                 CHECK( cudaMalloc((void**)&work_space_season2, sizeof(float)*work_size_season2) );
@@ -376,6 +380,10 @@ int main(int argc, char **argv)
                 // cudaMemcpy(HESSIAN_MATRIX, invGmHessSsymm, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost);
 #endif
                 multiply_matrix<<<HORIZON, HORIZON>>>(transGmatrix, -1.0f, invGmHessSsymm);
+                /*setup_Identity_Matrix<<<HORIZON, HORIZON>>>(deviceCov);
+                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceSquareCov, deviceCov);
+                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceCov, deviceSquareCov);
+                multiply_matrix<<<HORIZON, HORIZON>>>(transGmatrix, -2.0f, deviceSquareCov);*/
 
                 copy_inputSequences<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceInputSeq, deviceData);
                 CHECK_CUBLAS(cublasSgemv(handle_cublas, CUBLAS_OP_N, HORIZON, HORIZON, &alpha, transGmatrix, HORIZON, Hvector, 1, &beta,  deviceData, 1),"Failed to get Result");
@@ -395,7 +403,11 @@ int main(int argc, char **argv)
         // 推定入力列の先頭をコピー
         if(costFromMCMPC < costFromQHPMethod || isnan(costFromQHPMethod)){
 	        est_input = MCMPC_U;
-            counter = 0;
+            if(isnan(costFromQHPMethod)){
+                counter = -1;
+            }else{
+                counter = 0;
+            }
 	    }else{
             est_input = Proposed_U;
             counter = 1;

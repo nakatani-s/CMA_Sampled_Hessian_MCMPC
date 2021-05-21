@@ -31,7 +31,7 @@ __global__ void make_Covariance_Matrix(float *dCov,float *bCov, float *mean, Inp
     {
         weight_now = d_Datas[indecies[i]].W / f_denominator;
         // w  * (OP(y)-C^T) を愚直に計算した。
-        elements += weight_now * ( (d_Datas[indecies[i]].Input[threadIdx.x] - mean[threadIdx.x]) * (d_Datas[indecies[i]].Input[threadIdx.x] - mean[threadIdx.x]) - bCov[id]);
+        elements += weight_now * ( (d_Datas[indecies[i]].Input[threadIdx.x] - mean[threadIdx.x]) * (d_Datas[indecies[i]].Input[threadIdx.x] - mean[threadIdx.x]) -  2.0f * bCov[id]);
     }
 
     dCov[id] = elements;

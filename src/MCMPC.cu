@@ -277,7 +277,8 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
     for(int t_u = 0; t_u < HORIZON; t_u++)
     {
         z[t_u] = gen_u( id, r_seed, 0.0f, 1.0f);
-        seq += NUM_OF_SAMPLES;
+        // seq += NUM_OF_SAMPLES;
+        seq += HORIZON;
     }
     __syncthreads( );
 
