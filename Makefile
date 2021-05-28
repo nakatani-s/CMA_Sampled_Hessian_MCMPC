@@ -56,7 +56,8 @@ OBJS = \
 $(OBJ_DIR)/main.o $(OBJ_DIR)/MCMPC.o \
 $(OBJ_DIR)/dynamics.o $(OBJ_DIR)/init.o \
 $(OBJ_DIR)/LSM_QuadHyperPlane.o $(OBJ_DIR)/Matrix.o \
-$(OBJ_DIR)/costFunction.o $(OBJ_DIR)/CovarianceMatrixAdaptation.o
+$(OBJ_DIR)/costFunction.o $(OBJ_DIR)/CovarianceMatrixAdaptation.o \
+$(OBJ_DIR)/dataToFile.o
 ##########################################################
 
 ## Compile ##

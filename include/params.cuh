@@ -43,5 +43,7 @@ const float c_learning_rate = 1.0f;
 // #define INVERSE_OPERATION_USING_EIGENVALUE_FOR_LSM
 #define INVERSE_OPERATION_USING_EIGENVALUE
 #define CMA
+
+#define WRITE_MATRIX_INFORMATION
 #endif
 // const int 

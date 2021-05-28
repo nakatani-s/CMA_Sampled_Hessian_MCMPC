@@ -151,7 +151,12 @@ int main(int argc, char **argv)
     printf("#qhpblocks = %d\n", qhpBlocks);
     // float *KVALUE_MATRIX, *HESSIAN_MATRIX;
     // KVALUE_MATRIX = (float *)malloc(sizeof(float)*numUnknownParamQHP * numUnknownParamQHP);
-    // HESSIAN_MATRIX = (float *)malloc(sizeof(float)*dimHessian);
+#ifdef WRITE_MATRIX_INFORMATION
+#include "include/dataToFile.cuh"
+    float *HESSIAN_MATRIX;
+    int timerParam[5] = { };
+    HESSIAN_MATRIX = (float *)malloc(sizeof(float)*dimHessian);
+#endif
     //KVALUE_MATRIX = (float *)malloc(sizeof(float)*dimHessian);
     // 行列演算ライブラリ使用用に定義
     const int m_RMatrix = numUnknownParamQHP;
@@ -447,6 +452,24 @@ int main(int argc, char **argv)
                 counter = 1;
             }
         }
+
+#ifdef WRITE_MATRIX_INFORMATION
+        // hessianの固有値・固有ベクトルをファイルに書き込む
+        if(t < 200){
+            if(t % 30 == 0){
+                get_timeParam(timerParam, timeObject->tm_mon + 1, timeObject->tm_mday, timeObject->tm_hour, timeObject->tm_min, t);
+                LSM_QHP_transpose<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
+                CHECK(cudaMemcpy(HESSIAN_MATRIX, invGmHessSsymm, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost));
+                write_Matrix_Information( hostCovEig, HESSIAN_MATRIX, timerParam);
+            }
+        }else{
+            if( t % 100 == 0){
+                get_timeParam(timerParam, timeObject->tm_mon + 1, timeObject->tm_mday, timeObject->tm_hour, timeObject->tm_min, t);
+                CHECK(cudaMemcpy(HESSIAN_MATRIX, Hessian, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost));
+                write_Matrix_Information( hostCovEig, HESSIAN_MATRIX, timerParam);
+            }
+        }
+#endif
         Runge_kutta_45_for_Secondary_system(hostState, est_input, hostParams, interval);
         /*float hostDiffState[DIM_OF_STATES] = { };
         calc_nonLinear_example(hostState, est_input, hostParams, hostDiffState);
