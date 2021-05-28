@@ -138,6 +138,10 @@ int main(int argc, char **argv)
     CHECK(cudaMalloc(&ansRvector, sizeof(float) * numUnknownParamQHP));
     CHECK(cudaMalloc(&Gmatrix, sizeof(float) * numUnknownParamQHP * numUnknownParamQHP));
     CHECK(cudaMalloc(&invGmatrix, sizeof(float) * numUnknownParamQHP * numUnknownParamQHP) ); //elementsSize_QuadHyperPlaneMatrix = paramsSize_QuadHyperPlane * paramsSize_QuadHyperPlane
+#ifdef INVERSE_OPERATION_USING_EIGENVALUE_FOR_LSM
+    float *DiagInvGmatrix;
+    CHECK(cudaMalloc(&DiagInvGmatrix, sizeof(float) * numUnknownParamQHP * numUnknownParamQHP));
+#endif
     //assert(cudaSuccess == cudaStat2);
     QuadHyperPlane *deviceQuadHyPl;
     cudaMalloc(&deviceQuadHyPl, sizeof(QuadHyperPlane) * paramsSizeQuadHyperPlane); //当面はブロック数分リサンプル　( HORIZON < Blocks < GPUコア数 で設計)
@@ -168,10 +172,11 @@ int main(int argc, char **argv)
 
     /* Variables for CMA-ES */
     float *hostCov, *deviceCov, *deviceSquareCov, *deviceEigDiag;
-    float *deviceCovEig;
+    float *deviceCovEig, *hostCovEig;
     float *d_work, *d_ws_Hess;
     int lwork = 0;
-    hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
+    // hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
+    hostCovEig = (float*)malloc(sizeof(float) * HORIZON);
     CHECK(cudaMalloc(&deviceCovEig, sizeof(float) * HORIZON));
     CHECK(cudaMalloc(&deviceCov, sizeof(float) * HORIZON * HORIZON));
     CHECK(cudaMalloc(&deviceSquareCov, sizeof(float) * HORIZON * HORIZON));
@@ -206,6 +211,11 @@ int main(int argc, char **argv)
     float process_gpu_time, procedure_all_time;
     clock_t start_t, stop_t;
     cudaEvent_t start, stop;
+
+    int Judge_Hess = 0;
+    dim3 inverseGmatrix(numUnknownParamQHP, numUnknownParamQHP);
+    dim3 grid_inverse(HORIZON, HORIZON);
+    dim3 threads((HORIZON + grid_inverse.x -1) / grid_inverse.x, (HORIZON + grid_inverse.y -1) / grid_inverse.y);
 
     for(int t = 0; t < TIME; t++){
         shift_Input_vec( hostData );
@@ -243,7 +253,7 @@ int main(int argc, char **argv)
                 // 分散共分散行列の更新(CMA-ES)
                 // cpy_Previous_CovarianceMatrix<<<HORIZON, HORIZON>>>(deviceSquareCov, deviceCov);
                 setup_Identity_Matrix<<<HORIZON, HORIZON>>>(deviceSquareCov);  // deviceSquareCov を　単位行列化
-                make_Covariance_Matrix<<< HORIZON, HORIZON>>>(deviceCov, deviceSquareCov, deviceData, deviceInputSeq, thrust::raw_pointer_cast(indices_device_vec.data()), 3 * NUM_OF_ELITES);
+                make_Covariance_Matrix<<< HORIZON, HORIZON>>>(deviceCov, deviceSquareCov, deviceData, deviceInputSeq, thrust::raw_pointer_cast(indices_device_vec.data()), 2 * NUM_OF_ELITES);
                 result_CMA_rank_mu_Update<<<HORIZON, HORIZON>>>(deviceCov, deviceSquareCov, c_learning_rate);
                 // 分散共分散行列の固有値をベクトルに返すcuSOLVER関数
                 CHECK_CUSOLVER(cusolverDnSsyevd_bufferSize(cusolverH, jobz, uplo, HORIZON, deviceCov, HORIZON, deviceCovEig, &lwork),"Failed to compute size of d_workspace for clc");
@@ -256,16 +266,19 @@ int main(int argc, char **argv)
                 make_SqrtEigen_Diagonal_Matrix<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceCovEig);
                 
                 // 
-                // W(deviceEigDiag) = P^t(deviceCov) V(deviceEigDiag) を計算する関数  
-                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceCov, deviceEigDiag);
+                // W(deviceEigDiag) = P^t(deviceCov) V(deviceEigDiag) を計算する関数
+                prod_MtarixByMatrix<<<grid_inverse, 1>>>(deviceCov, deviceEigDiag, deviceSquareCov, HORIZON); 
+                LSM_QHP_transpose<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceSquareCov);
+                prod_MtarixByMatrix<<<grid_inverse, 1>>>(deviceEigDiag, deviceCov, deviceSquareCov, HORIZON);
+                // pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceCov, deviceEigDiag);
                 // 正規直交固有ベクトル(deviceCov)を転置した行列(deviceSquareCov)を作成する関数の実行
-                LSM_QHP_transpose<<<HORIZON, HORIZON>>>(deviceSquareCov, deviceCov);
-                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceSquareCov);
+                // LSM_QHP_transpose<<<HORIZON, HORIZON>>>(deviceSquareCov, deviceCov);
+                // pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceSquareCov);
                 // vars ← 共分散のスケーリングは、当初固定、事後、最終反復時のMCコスト／　最初の反復時のMCコストを採用予定
                 // CMAを用いた並列シミュレーション用の関数の作成　←　ここから作成する　（2021.5.12）
-                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 0.01 * neighborVar, deviceParams, deviceConstraint, 
+                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));
-                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
+                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
                 cudaDeviceSynchronize();
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
@@ -285,7 +298,7 @@ int main(int argc, char **argv)
 #endif
                 // ↓↓↓↓　以降の関数は、近傍探索から
                 /* 推定値近傍をサンプル・評価する関数 */
-                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
+                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 2*neighborVar, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
                 MCMPC_Crat_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, deviceWeightMatrix,
                     thrust::raw_pointer_cast( sort_key_device_vec.data() ));
@@ -313,6 +326,17 @@ int main(int argc, char **argv)
                 cudaDeviceSynchronize();
 
             /* Gmatrixの逆行列を計算 */
+#ifdef INVERSE_OPERATION_USING_EIGENVALUE_FOR_LSM
+                CHECK_CUSOLVER(cusolverDnSsyevd_bufferSize(cusolverH, jobz, uplo, m_RMatrix, Gmatrix, m_RMatrix, ansRvector, &lwork),"Failed to compute size of d_workspace for get eigen value for GMatrix");
+                CHECK( cudaMalloc((void**)&d_ws_Hess, sizeof(float) * lwork) );
+                CHECK_CUSOLVER( cusolverDnSsyevd(cusolverH, jobz, uplo, m_RMatrix, Gmatrix, m_RMatrix, ansRvector, d_ws_Hess, lwork, devInfo), "Failed to compute Eigen values of GMatrix");
+                CHECK( cudaDeviceSynchronize() );
+                //
+                make_IEDM_allow_suddlePoint<<<numUnknownParamQHP,numUnknownParamQHP>>>(DiagInvGmatrix, ansRvector);
+                prod_MtarixByMatrix<<<inverseGmatrix, 1>>>(Gmatrix, DiagInvGmatrix, invGmatrix, numUnknownParamQHP);
+                LSM_QHP_transpose<<<numUnknownParamQHP,numUnknownParamQHP>>>(DiagInvGmatrix, invGmatrix);
+                prod_MtarixByMatrix<<<inverseGmatrix, 1>>>(DiagInvGmatrix, Gmatrix, invGmatrix, numUnknownParamQHP);
+#else
                 CHECK_CUSOLVER( cusolverDnSpotrf_bufferSize(cusolverH, uplo, m_RMatrix, Gmatrix, m_RMatrix, &work_size), "Failed to get bufferSize");
                 CHECK( cudaMalloc((void**)&work_space, sizeof(float)*work_size));
 	            //cudaGetErrorString(cudaStat1);
@@ -327,7 +351,7 @@ int main(int argc, char **argv)
                 }
                 cudaDeviceSynchronize();
                 CHECK_CUSOLVER( cusolverDnSpotrs(cusolverH, uplo, m_RMatrix, m_RMatrix , Gmatrix, m_RMatrix, invGmatrix, m_RMatrix, devInfo), "Failed to get inverse Matrix G");
-
+#endif
                 //LSM_QHP_get_reslt_all_elements<<<numUnknownParamQHP,1>>>(HessElements, invGmatrix, Rvector);
                 /* 最小二乗法の行列演算　ansRvector = invGmatrix * Rvector を計算 */ 
                 CHECK_CUBLAS( cublasSgemv(handle_cublas, CUBLAS_OP_N, m_RMatrix, m_RMatrix, &alpha, invGmatrix, m_RMatrix, Rvector, 1, &beta, ansRvector , 1), "Failed to get Estimate Input Sequences");
@@ -358,15 +382,20 @@ int main(int argc, char **argv)
                 CHECK( cudaMalloc((void**)&d_ws_Hess, sizeof(float) * lwork) );
                 CHECK_CUSOLVER( cusolverDnSsyevd(cusolverH, jobz, uplo, HORIZON, Hessian, HORIZON, deviceCovEig, d_ws_Hess, lwork, devInfo), "Failed to compute Eigen values of Hessian");
                 CHECK( cudaDeviceSynchronize() );
+                CHECK( cudaMemcpy(hostCovEig, deviceCovEig, sizeof(float) * HORIZON, cudaMemcpyDeviceToHost) );
+                Judge_Hess = count_negative_EigenValues(hostCovEig, HORIZON);
                 make_InverseEigen_Diagonal_Matrix<<<HORIZON,  HORIZON>>>(transGmatrix, deviceCovEig);
-                LSM_QHP_transpose<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
-                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(invGmHessSsymm, transGmatrix);
-                CHECK( cudaDeviceSynchronize() );
+                // LSM_QHP_transpose<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
+                prod_MtarixByMatrix<<<grid_inverse, 1>>>(Hessian, transGmatrix, invGmHessSsymm, HORIZON);
+                LSM_QHP_transpose<<<HORIZON, HORIZON>>>(transGmatrix, invGmHessSsymm);
+                prod_MtarixByMatrix<<<grid_inverse, 1>>>(transGmatrix, Hessian, invGmHessSsymm, HORIZON);
+                // pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(invGmHessSsymm, transGmatrix);
+                // CHECK( cudaDeviceSynchronize() );
                 // LSM_QHP_transpose<<<HORIZON, HORIZON>>>(Hessian, invGmHessSsymm);
-                copy_device_Matrix<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
-                CHECK( cudaDeviceSynchronize() );
-                pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(transGmatrix, invGmHessSsymm);
-                CHECK( cudaDeviceSynchronize() );
+                // copy_device_Matrix<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
+                // CHECK( cudaDeviceSynchronize() );
+                // pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(transGmatrix, invGmHessSsymm);
+                // CHECK( cudaDeviceSynchronize() );
                 
 #else
                 CHECK_CUSOLVER(cusolverDnSpotrf_bufferSize(cusolverH, uplo, HORIZON, Hessian, HORIZON, &work_size_season2),"Failed to get bufferSize of Hessian");
@@ -401,16 +430,22 @@ int main(int argc, char **argv)
         stop_t = clock();
         procedure_all_time = stop_t - start_t;
         // 推定入力列の先頭をコピー
-        if(costFromMCMPC < costFromQHPMethod || isnan(costFromQHPMethod)){
+        if(isnan(costFromQHPMethod)){
 	        est_input = MCMPC_U;
-            if(isnan(costFromQHPMethod)){
-                counter = -1;
-            }else{
-                counter = 0;
-            }
+            counter = -2;
 	    }else{
-            est_input = Proposed_U;
-            counter = 1;
+            if(costFromMCMPC < costFromQHPMethod)
+            {
+                est_input = MCMPC_U;
+                if(1 <= Judge_Hess){
+                    counter = -1;
+                }else{
+                    counter = 0;
+                }
+            }else{
+                est_input = Proposed_U;
+                counter = 1;
+            }
         }
         Runge_kutta_45_for_Secondary_system(hostState, est_input, hostParams, interval);
         /*float hostDiffState[DIM_OF_STATES] = { };
@@ -420,7 +455,8 @@ int main(int argc, char **argv)
         }*/
         cudaMemcpy(deviceState, hostState, sizeof(float) * DIM_OF_STATES, cudaMemcpyHostToDevice);
         fprintf(fp,"%f %f %f %f %f %f %f %f %f %f %f %f %f %d\n", interval * t, est_input, MCMPC_U, Proposed_U, hostState[0], hostState[1], hostState[2], hostState[3], costFromMCMPC, costFromQHPMethod, costFromMCMPC - costFromQHPMethod, process_gpu_time/1000,procedure_all_time / CLOCKS_PER_SEC, counter);
-        printf("u == %f MCMPC == %f  Proposed == %f  MCMPC - Proposed == %f\n", est_input,  costFromMCMPC, costFromQHPMethod, costFromMCMPC - costFromQHPMethod);
+        printf("u == %f MCMPC == %f  Proposed == %f  MCMPC - Proposed == %f  NegEigValue = %d\n", est_input,  costFromMCMPC, costFromQHPMethod, costFromMCMPC - costFromQHPMethod, Judge_Hess);
+        Judge_Hess = 0;
     }
 
     if(cusolverH) cusolverDnDestroy(cusolverH);

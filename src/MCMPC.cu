@@ -342,7 +342,7 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
     float KL_COST, S, lambda, HM_COST, HM;
     //int NomarizationCost = sizeOfParaboloidElements + addTermForLSM; //LSMでparaboloidをフィッティングする際に行列の
     lambda = 2 * HORIZON;
-    HM = total_cost / (0.75*HORIZON); //0.75
+    HM = total_cost / (0.1*HORIZON); //0.75
     S = total_cost / lambda;
     KL_COST = exp(-S);
     HM_COST = exp(-HM);

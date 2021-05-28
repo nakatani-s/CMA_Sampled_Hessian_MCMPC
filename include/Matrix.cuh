@@ -8,6 +8,7 @@
 void printMatrix(int m, int n, float*A, int lda, const char* name);
 
 unsigned int countBlocks(unsigned int a, unsigned int b);
+int count_negative_EigenValues( float *EigVec, int step);
 
 
 __global__ void setup_Identity_Matrix(float *IdMat);
@@ -20,3 +21,5 @@ __global__ void copy_device_Matrix(float *Out, float *In);
 __global__ void pwr_matrix_answerLater(float *A, float *B);
 __global__ void copy_inputSequences(InputVector *outInput, float *temp);
 __global__ void multiply_matrix(float *OutMatrix, float voc, float *InMatrix);
+__global__ void prod_MtarixByMatrix(float *A, float *B, float *C, int num);
+__global__ void make_IEDM_allow_suddlePoint(float *DiagMat, float *VecEig);

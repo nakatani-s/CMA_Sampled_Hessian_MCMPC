@@ -20,6 +20,18 @@ unsigned int countBlocks(unsigned int a, unsigned int b) {
 	return num;
 }
 
+int count_negative_EigenValues( float *EigVec, int step)
+{
+    int counter = 0;
+    for(int i = 0; i < step; i++)
+    {
+        if(EigVec[i] <= 0.0f){
+            counter += 1;
+        }
+    }
+    return counter;
+}
+
 __global__ void setup_Identity_Matrix(float *IdMat)
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
@@ -101,16 +113,46 @@ __global__ void make_SqrtEigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
     __syncthreads( ); 
 }
 
+
+__global__ void make_IEDM_allow_suddlePoint(float *DiagMat, float *VecEig)
+{
+    unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
+    if(threadIdx.x == blockIdx.x)
+    {
+        if(VecEig[threadIdx.x] <= 0.0f)
+        {
+            DiagMat[id] = 1/VecEig[threadIdx.x];
+            // DiagMat[id] = -0.0001f;
+            // DiagMat[id] = -1 / sqrt(fabs(VecEig[threadIdx.x]));
+            // DiagMat[id] = VecEig[threadIdx.x];
+        }else{
+            // DiagMat[id] = VecEig[threadIdx.x];
+            // DiagMat[id] = 1 / sqrt(VecEig[threadIdx.x]);
+            DiagMat[id] = 1 / VecEig[threadIdx.x];
+        }
+    }else{
+        DiagMat[id] = 0.0f;
+    }
+    __syncthreads( );
+}
+
+
 __global__ void make_InverseEigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
     if(threadIdx.x == blockIdx.x)
     {
-        if(VecEig[threadIdx.x] == 0.0f || VecEig[id] < 0.0f)
+        if(VecEig[threadIdx.x] <= 0.0f)
         {
             DiagMat[id] = 0.0f;
+            // DiagMat[id] = -0.0001f;
+            // DiagMat[id] = -1 / sqrt(fabs(VecEig[threadIdx.x]));
+            // DiagMat[id] = VecEig[threadIdx.x];
+            // DiagMat[id] = 0.001f;
         }else{
-            DiagMat[id] = 1 / sqrt(fabs(VecEig[threadIdx.x]));
+            // DiagMat[id] = VecEig[threadIdx.x];
+            // DiagMat[id] = 1 / sqrt(VecEig[threadIdx.x]);
+            DiagMat[id] = 1 / VecEig[threadIdx.x];
         }
     }else{
         DiagMat[id] = 0.0f;
@@ -146,6 +188,24 @@ __global__ void pwr_matrix_answerLater(float *A, float *B)
     {
         B[id] = row[id];
     }*/
+}
+
+__global__ void prod_MtarixByMatrix(float *A, float *B, float *C, int num)
+{
+    unsigned int xid = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int yid = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idx = xid * num + yid;
+    
+    float x = 0.0f;
+    if(xid < num && yid < num)
+    {
+        for(int i = 0; i < num; i++)
+        {
+            x += A[i * num + xid] * B[i * num + yid];
+        }
+        C[idx] = x;
+    }
+    __syncthreads();
 }
 
 __global__ void multiply_matrix(float *OutMatrix, float voc, float *InMatrix)
