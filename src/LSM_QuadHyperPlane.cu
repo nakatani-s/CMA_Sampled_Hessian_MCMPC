@@ -15,22 +15,34 @@ __global__ void LSM_QHP_make_tensor_vector(QuadHyperPlane *output, InputVector *
     int next_indices = 0;
     for(int i = 0; i < HORIZON; i++){
         for(int j = i; j < HORIZON; j++){
-            output[id].tensor_vector[next_indices] = input[indices[id]].Input[i] * input[indices[id]].Input[j] * input[indices[id]].WHM;
-	    //output[id].tensor_vector[next_indices] = i * j;
+
+            output[id].tensor_vector[next_indices] = input[indices[id]].Input[i] * input[indices[id]].Input[j] * sqrt(input[indices[id]].WHM);
+            // output[id].tensor_vector[next_indices] = input[indices[id]].Input[i] * input[indices[id]].Input[j] * input[indices[id]].WHM;
+            // output[id].tensor_vector[next_indices] = input[indices[id]].Input[i] * input[indices[id]].Input[j] * sqrt(input[indices[id]].WHM);
+	    
             output[id].column_vector[next_indices] = input[indices[id]].L * input[indices[id]].Input[i] * input[indices[id]].Input[j]  * input[indices[id]].WHM;
-            //output[id].column_vector[next_indices] = 3.0;
+            // output[id].column_vector[next_indices] = input[indices[id]].L * input[indices[id]].Input[i] * input[indices[id]].Input[j]  * input[indices[id]].WHM;
+            // output[id].column_vector[next_indices] = input[indices[id]].W * input[indices[id]].Input[i] * input[indices[id]].Input[j]  * input[indices[id]].WHM;
             next_indices += 1;
         }
     }
     for(int i = 0; i < HORIZON; i++){
-        output[id].tensor_vector[next_indices] = input[indices[id]].Input[i]  * input[indices[id]].WHM;
-        //output[id].tensor_vector[next_indices] = i;
+        
+        output[id].tensor_vector[next_indices] = input[indices[id]].Input[i]  * sqrt(input[indices[id]].WHM);
+        // output[id].tensor_vector[next_indices] = input[indices[id]].Input[i]  * input[indices[id]].WHM;
+        
         output[id].column_vector[next_indices] = input[indices[id]].L * input[indices[id]].Input[i]  * input[indices[id]].WHM;
+        // output[id].column_vector[next_indices] = input[indices[id]].L * input[indices[id]].Input[i]  * input[indices[id]].WHM;
+        // output[id].column_vector[next_indices] = input[indices[id]].W * input[indices[id]].Input[i]  * input[indices[id]].WHM;
         //output[id].column_vector[next_indices] = (1/2)*i;
         next_indices += 1;
     }
-    output[id].tensor_vector[sizeOfParaboloidElements - 1] = 1.0f  * input[indices[id]].WHM;
+    output[id].tensor_vector[sizeOfParaboloidElements - 1] = 1.0f  * sqrt(input[indices[id]].WHM);
+    // output[id].tensor_vector[sizeOfParaboloidElements - 1] = 1.0f  * input[indices[id]].WHM ;
+
     output[id].column_vector[sizeOfParaboloidElements - 1] = input[indices[id]].L  * input[indices[id]].WHM;
+    // output[id].column_vector[sizeOfParaboloidElements - 1] = input[indices[id]].L  * input[indices[id]].WHM;
+    // output[id].column_vector[sizeOfParaboloidElements - 1] = input[indices[id]].W  * input[indices[id]].WHM;
     __syncthreads();
 }
 
@@ -197,4 +209,48 @@ __global__ void LSM_QHP_make_bVector(float *OutVector, float *Elemets, int indec
     OutVector[id] = Elemets[indecies + id];
     //printf("id = %d IN = %f\n", indecies + id, Elemets[indecies + id]);
     __syncthreads();
+}
+
+float evaluate_fitting_accuracy( QuadHyperPlane *qhp, int denominator)
+{
+    float ret = 0.0f;
+    for(int i = 0; i < denominator; i++)
+    {
+        // ret += qhp[i].QplaneValue / denominator;
+        ret += qhp[i].QplaneValue;
+    }
+
+    return ret;
+}
+
+__global__ void LSM_evaluation_fittingAccuravy(QuadHyperPlane *ansVlaues, float *Hess, float *Grad, float *R, InputVector *datas, int *indices)
+{
+    unsigned int id =threadIdx.x + blockIdx.x * blockDim.x;
+    float VbyMVector[HORIZON] = { };
+    float QuadTerm = 0.0f;
+    float LinerTerm = 0.0f;
+    float ConstantTerm = 0.0f;
+    float ValuesOnHyperPlane = 0.0f;
+
+    ConstantTerm = R[sizeOfParaboloidElements - 1];
+
+    for(int i = 0; i < HORIZON; i++)
+    {
+        for(int k = 0; k < HORIZON; k++)
+        {
+            VbyMVector[i] += datas[indices[id]].Input[k] * Hess[i + k * HORIZON];
+        }
+    }
+
+    for(int i = 0; i < HORIZON; i++)
+    {
+        QuadTerm += VbyMVector[i] * datas[indices[id]].Input[i];
+        LinerTerm += Grad[i] * datas[indices[id]].Input[i];
+    }
+
+    ValuesOnHyperPlane = QuadTerm + LinerTerm + ConstantTerm;
+    ansVlaues[id].QplaneValue = (datas[indices[id]].L - ValuesOnHyperPlane) * (datas[indices[id]].L - ValuesOnHyperPlane);
+    __syncthreads();
+
+
 }

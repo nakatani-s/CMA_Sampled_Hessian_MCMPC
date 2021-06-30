@@ -147,7 +147,7 @@ __global__ void make_InverseEigen_Diagonal_Matrix(float *DiagMat, float *VecEig)
             DiagMat[id] = 0.0f;
             // DiagMat[id] = -0.0001f;
             // DiagMat[id] = -1 / sqrt(fabs(VecEig[threadIdx.x]));
-            // DiagMat[id] = VecEig[threadIdx.x];
+            // DiagMat[id] = 1 / VecEig[threadIdx.x];
             // DiagMat[id] = 0.001f;
         }else{
             // DiagMat[id] = VecEig[threadIdx.x];

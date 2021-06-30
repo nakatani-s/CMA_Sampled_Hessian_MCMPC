@@ -26,6 +26,8 @@ __global__ void init_Input_vector(InputVector *d_I, float init_val);
 __global__ void callback_elite_sample(InputVector *devOut, InputVector *devIn, int *elite_indices);
 __global__ void setup_kernel(curandState *state,int seed);
 
+__global__ void WeightRecalculation( InputVector *devIn, int *indices);
+
 
 __global__ void MCMPC_Simple_NonLinear_Example(float *state, curandState *randomSeed , float *mean, InputVector *d_data, float var, float *d_param, float *d_constraints, float *d_matrix, float *cost_vec);
 

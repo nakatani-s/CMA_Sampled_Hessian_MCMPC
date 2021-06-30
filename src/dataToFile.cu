@@ -23,7 +23,7 @@ void get_timeParam(int *tparam,int month, int day, int hour, int min, int step)
     }
 }*/
 
-void write_Matrix_Information(float *EigenVector, float *Matrix, int *timeparam)
+void write_Matrix_Information(float *EigenVector, float *grad, float *Matrix, int *timeparam)
 {
     FILE *fp;
     char filename_here[35];
@@ -31,7 +31,7 @@ void write_Matrix_Information(float *EigenVector, float *Matrix, int *timeparam)
     fp = fopen(filename_here, "w");
 
     for(int row = 0; row < HORIZON; row++){
-        fprintf(fp, "%f ", EigenVector[row]);
+        fprintf(fp, "%f %f ", EigenVector[row], grad[row]);
         for(int col = 0; col < HORIZON; col++)
         {
             if(col == HORIZON -1)
@@ -46,3 +46,21 @@ void write_Matrix_Information(float *EigenVector, float *Matrix, int *timeparam)
     fclose(fp);
     
 }
+
+/*void write_fittingError_percentage(float *numerator, float denominator, int step)
+{
+    FILE *fp;
+    char filenames[25];
+    sprintf(filenames, "FittigErrors%d.txt", step);
+    fp = fopen(filenames, "w");
+
+    for(int column = 0; column < 9; column++)
+    {
+        if(column < 8){
+            fprintf(fp, "%f ", numerator[column] / denominator );
+        }else{
+            fprintf(fp, "%f\n")
+        }
+        
+    }
+}*/

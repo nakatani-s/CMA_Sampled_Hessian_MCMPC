@@ -37,12 +37,14 @@ float calc_Cost_Cart_and_SinglePole(float *inputSeq, float *stateVal, float *par
         stateHere[no] = stateVal[no];
     }
     for(int t = 0; t < HORIZON; t++){
+        
         if(inputSeq[t] < constraints[0]){
             inputSeq[t] = constraints[0];
         }
         if(inputSeq[t] > constraints[1]){
             inputSeq[t] = constraints[1];
         }
+
         // まずは、オイラー積分（100Hz 40stepで倒立できるか）　→　0.4秒先まで予測
         // 問題が起きたら、0次ホールダーでやってみる、それでもダメならMPCの再設計
         /*dStateValue[0] = stateHere[2];
@@ -53,7 +55,7 @@ float calc_Cost_Cart_and_SinglePole(float *inputSeq, float *stateVal, float *par
         stateHere[3] = stateHere[3] + (interval * dStateValue[3]);
         stateHere[0] = stateHere[0] + (interval * dStateValue[0]);
         stateHere[1] = stateHere[1] + (interval * dStateValue[1]);*/
-        for(int sec = 0; sec < 2; sec++){
+        for(int sec = 0; sec < 1; sec++){
             dStateValue[0] = stateHere[2];
             dStateValue[1] = stateHere[3];
             dStateValue[2] = Cart_type_Pendulum_ddx(inputSeq[t], stateHere[0], stateHere[1], stateHere[2], stateHere[3], param); //ddx
@@ -64,20 +66,34 @@ float calc_Cost_Cart_and_SinglePole(float *inputSeq, float *stateVal, float *par
             stateHere[1] = stateHere[1] + (interval * dStateValue[1]);
         }
 
-        while(stateHere[1] > M_PI)
+        /*while(stateHere[1] > M_PI)
             stateHere[1] -= (2 * M_PI);
         while(stateHere[1] < -M_PI)
-            stateHere[1] += (2 * M_PI);
+            stateHere[1] += (2 * M_PI);*/
 
         // upper side: MATLAB　で使用している評価関数を参考    
         /* qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
             + u[t] * u[t] * d_matrix[3]; */
-        stageCost = stateHere[0] * stateHere[0] * weightMatrix[0] + stateHere[1] * stateHere[1] * weightMatrix[1]
+        /*stageCost = stateHere[0] * stateHere[0] * weightMatrix[0] + stateHere[1] * stateHere[1] * weightMatrix[1]
+            + stateHere[2] * stateHere[2] * weightMatrix[2] + stateHere[3] * stateHere[3] * weightMatrix[3]
+            + inputSeq[t] * inputSeq[t] * weightMatrix[4];*/
+        stageCost = stateHere[0] * stateHere[0] * weightMatrix[0] + sinf(stateHere[1]/2) * sinf(stateHere[1]/2) * weightMatrix[1]
             + stateHere[2] * stateHere[2] * weightMatrix[2] + stateHere[3] * stateHere[3] * weightMatrix[3]
             + inputSeq[t] * inputSeq[t] * weightMatrix[4];
+        if(t == HORIZON -1)
+        {
+            stageCost += stateHere[0] * stateHere[0] * weightMatrix[0] + sinf(stateHere[1]/2) * sinf(stateHere[1]/2) * weightMatrix[1]
+            + stateHere[2] * stateHere[2] * weightMatrix[2] + stateHere[3] * stateHere[3] * weightMatrix[3];
+
+            // stageCost += stateHere[0] * stateHere[0] * (weightMatrix[0] + 2.0f) + sinf(stateHere[1]/2) * sinf(stateHere[1]/2) * weightMatrix[1]
+            // + stateHere[2] * stateHere[2] * (weightMatrix[2] + 0.04f) + stateHere[3] * stateHere[3] * (weightMatrix[3] + 0.009f);
+        }
+        /*stageCost = stateHere[0] * stateHere[0] * weightMatrix[0] + (1 - cosf(stateHere[1])) * (1 - cosf(stateHere[1])) * weightMatrix[1]
+            + stateHere[2] * stateHere[2] * weightMatrix[2] + stateHere[3] * stateHere[3] * weightMatrix[3]
+            + inputSeq[t] * inputSeq[t] * weightMatrix[4];*/
         
         // constraints described by Barrier Function Method
-        if(stateHere[0] <= 0){
+        /*if(stateHere[0] <= 0){
             stageCost += 1 / (powf(stateHere[0] - constraints[2],2) * invBarrier);
             if(stateHere[0] < constraints[2]){
                 stageCost += 1000000;
@@ -87,7 +103,7 @@ float calc_Cost_Cart_and_SinglePole(float *inputSeq, float *stateVal, float *par
             if(stateHere[0] > constraints[3]){
                 stageCost += 1000000;
             }
-        }
+        }*/
 
         costValue += stageCost;
 

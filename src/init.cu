@@ -29,7 +29,7 @@ void init_state( float *a )
     
     // FOR CART AND POLE
     a[0] = 0.0f; //x
-    a[1] = M_PI; //theta
+    a[1] = M_PI + 0.005; //theta
     a[2] = 0.0f; //dx
     a[3] = 0.0f; //dth
 }
@@ -42,10 +42,17 @@ void init_constraint( float *a )
     a[1] = 0.0f;*/
 
     // FOR CONTROL CART AND POLE
-    a[0] = -1.0f;
+    // For Quadric Fitting Superior Constraints parameters
+    a[0] = -3.0f;
+    a[1] = 3.0f;
+    a[2] = -0.5f;
+    a[3] = 0.5f;
+
+    // For MC superior Parameter
+    /*a[0] = -1.0f;
     a[1] = 1.0f;
-    a[2] = -0.45f;
-    a[3] = 0.45f;
+    a[2] = -0.5f;
+    a[3] = 0.5f;*/
 }
 
 void init_matrix( float *a )
@@ -57,10 +64,18 @@ void init_matrix( float *a )
     a[2] = 0.1f;*/
 
     // FOR CAONTROL CART AND POLE
+    // For Quadric Fitting Superior Weight Parameter
+    /*a[0] = 3.0f;
+    a[1] = 3.5f;
+    a[2] = 0.0f;
+    a[3] = 0.0f;
+    a[4] = 1.0f;*/
+
+    // For MC superior Parameter
     a[0] = 3.0f;
-    a[1] = 3.0f;
-    a[2] = 0.04f;
-    a[3] = 0.05f;
+    a[1] = 10.0f;
+    a[2] = 0.05f;
+    a[3] = 0.01f;
     a[4] = 0.5f;
 }
 

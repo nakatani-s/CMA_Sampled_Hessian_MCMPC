@@ -25,6 +25,7 @@
 #include "include/Matrix.cuh"
 #include "include/costFunction.cuh"
 #include "include/CovarianceMatrixAdaptation.cuh"
+#include "include/dataToFile.cuh"
 
 #define CHECK(call)                                                  \
 {                                                                    \
@@ -145,6 +146,18 @@ int main(int argc, char **argv)
     //assert(cudaSuccess == cudaStat2);
     QuadHyperPlane *deviceQuadHyPl;
     cudaMalloc(&deviceQuadHyPl, sizeof(QuadHyperPlane) * paramsSizeQuadHyperPlane); //当面はブロック数分リサンプル　( HORIZON < Blocks < GPUコア数 で設計)
+
+#ifdef EVALUATE_FITTING_ACCURACY
+    QuadHyperPlane *hostQuadHyPl;
+    float fittingCost = 0.0f;
+    float fittingErrors[9] = {};
+    hostQuadHyPl = (QuadHyperPlane*)malloc(sizeof(QuadHyperPlane) * paramsSizeQuadHyperPlane);
+
+    FILE *FP_FITTING;
+    char filename_for_FP_FITTING[35];
+    sprintf(filename_for_FP_FITTING, "FittingErrorSeq_%d%d_%d%d.txt", timeObject->tm_mon + 1, timeObject->tm_mday, timeObject->tm_hour,timeObject->tm_min);
+    FP_FITTING = fopen(filename_for_FP_FITTING, "w");
+#endif
     unsigned int qhpBlocks;
     // qhpBlocks = countBlocks(numUnknownParamQHP, THREAD_PER_BLOCKS);
     qhpBlocks = countBlocks(paramsSizeQuadHyperPlane, THREAD_PER_BLOCKS);
@@ -152,7 +165,6 @@ int main(int argc, char **argv)
     // float *KVALUE_MATRIX, *HESSIAN_MATRIX;
     // KVALUE_MATRIX = (float *)malloc(sizeof(float)*numUnknownParamQHP * numUnknownParamQHP);
 #ifdef WRITE_MATRIX_INFORMATION
-#include "include/dataToFile.cuh"
     float *HESSIAN_MATRIX;
     int timerParam[5] = { };
     HESSIAN_MATRIX = (float *)malloc(sizeof(float)*dimHessian);
@@ -180,7 +192,7 @@ int main(int argc, char **argv)
     float *deviceCovEig, *hostCovEig;
     float *d_work, *d_ws_Hess;
     int lwork = 0;
-    // hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
+    hostCov = (float*)malloc(sizeof(float) * HORIZON * HORIZON);
     hostCovEig = (float*)malloc(sizeof(float) * HORIZON);
     CHECK(cudaMalloc(&deviceCovEig, sizeof(float) * HORIZON));
     CHECK(cudaMalloc(&deviceCov, sizeof(float) * HORIZON * HORIZON));
@@ -240,6 +252,8 @@ int main(int argc, char **argv)
                 cudaDeviceSynchronize();
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
                 thrust::sort_by_key(sort_key_device_vec.begin(), sort_key_device_vec.end(), indices_device_vec.begin());
+
+                // WeightRecalculation<<<numBlocks, THREAD_PER_BLOCKS>>>( deviceInputSeq, thrust::raw_pointer_cast( indices_device_vec.data() ));
             
                 /* エリートサンプル分の入力・コスト値をコールバックする関数 */ 
                 callback_elite_sample<<<NUM_OF_ELITES, 1>>>(deviceEliteInputSeq, deviceInputSeq, thrust::raw_pointer_cast(indices_device_vec.data()));
@@ -281,7 +295,7 @@ int main(int argc, char **argv)
                 // pwr_matrix_answerLater<<<HORIZON, HORIZON>>>(deviceEigDiag, deviceSquareCov);
                 // vars ← 共分散のスケーリングは、当初固定、事後、最終反復時のMCコスト／　最初の反復時のMCコストを採用予定
                 // CMAを用いた並列シミュレーション用の関数の作成　←　ここから作成する　（2021.5.12）
-                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 1.0f, deviceParams, deviceConstraint, 
+                CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, vars, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));
                 /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
@@ -289,6 +303,9 @@ int main(int argc, char **argv)
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
                 thrust::sort_by_key(sort_key_device_vec.begin(), sort_key_device_vec.end(), indices_device_vec.begin());
                 
+
+                // WeightRecalculation<<<numBlocks, THREAD_PER_BLOCKS>>>( deviceInputSeq, thrust::raw_pointer_cast( indices_device_vec.data() ));
+
                 /* エリートサンプル分の入力・コスト値をコールバックする関数 */ 
                 callback_elite_sample<<<NUM_OF_ELITES, 1>>>(deviceEliteInputSeq, deviceInputSeq, thrust::raw_pointer_cast(indices_device_vec.data()));
                 cudaDeviceSynchronize();
@@ -303,7 +320,7 @@ int main(int argc, char **argv)
 #endif
                 // ↓↓↓↓　以降の関数は、近傍探索から
                 /* 推定値近傍をサンプル・評価する関数 */
-                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 2*neighborVar, deviceParams, deviceConstraint, 
+                /*CMAMCMPC_Cart_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceSquareCov, deviceData, deviceInputSeq, 3.0f, deviceParams, deviceConstraint, 
                     deviceWeightMatrix, thrust::raw_pointer_cast( sort_key_device_vec.data() ));*/
                 MCMPC_Crat_and_SinglePole<<<numBlocks, THREAD_PER_BLOCKS>>>(deviceState, deviceRandomSeed, deviceData, deviceInputSeq, neighborVar, deviceParams, deviceConstraint, deviceWeightMatrix,
                     thrust::raw_pointer_cast( sort_key_device_vec.data() ));
@@ -312,6 +329,10 @@ int main(int argc, char **argv)
                 cudaDeviceSynchronize();
                 thrust::sequence(indices_device_vec.begin(), indices_device_vec.end());
                 thrust::sort_by_key(sort_key_device_vec.begin(), sort_key_device_vec.end(), indices_device_vec.begin());
+
+                // 重み再計算用関数
+                WeightRecalculation<<<numBlocks, THREAD_PER_BLOCKS>>>( deviceInputSeq, thrust::raw_pointer_cast( indices_device_vec.data() ));
+
                 /*device_QuadHyPlに，最小二乗法の左辺(column)と右辺の行列(テンソル積)計算用のベクトル(tensor)を格納する*/
                 // printf("hoge here l 185\n");
                 LSM_QHP_make_tensor_vector<<<qhpBlocks, THREAD_PER_BLOCKS>>>(deviceQuadHyPl, deviceInputSeq, thrust::raw_pointer_cast( indices_device_vec.data() ));
@@ -379,7 +400,22 @@ int main(int argc, char **argv)
 
                 /* -2*Hessian * b^T の b^Tベクトルを作成 (Hvector　←　b^T) */
                 LSM_QHP_make_bVector<<<HORIZON, 1>>>(Hvector, ansRvector, numUnknownParamHessian);
+#ifdef EVALUATE_FITTING_ACCURACY
+                LSM_evaluation_fittingAccuravy<<<paramsSizeQuadHyperPlane, 1>>>(deviceQuadHyPl, transGmatrix, Hvector, ansRvector, deviceInputSeq, thrust::raw_pointer_cast( indices_device_vec.data() ));
+                CHECK( cudaMemcpy(hostQuadHyPl, deviceQuadHyPl, sizeof(QuadHyperPlane) * paramsSizeQuadHyperPlane, cudaMemcpyDeviceToHost) );
+                fittingCost = evaluate_fitting_accuracy(hostQuadHyPl, paramsSizeQuadHyperPlane);
 
+                fprintf(FP_FITTING, "%f %f ", t * interval, fittingCost);
+                for(int per = 0; per < 9; per++){
+                    fittingErrors[per] = evaluate_fitting_accuracy(hostQuadHyPl, (int)paramsSizeQuadHyperPlane * 0.1f * (per + 1) );
+                    if(per < 8)
+                    {
+                        fprintf(FP_FITTING, "%f ", fittingErrors[per] / fittingCost);
+                    }else{
+                        fprintf(FP_FITTING, "%f ", fittingErrors[per] / fittingCost);
+                    }
+                }
+#endif
                 multiply_matrix<<<HORIZON, HORIZON>>>(Hessian, 2.0f, transGmatrix);
                 // 逆行列の計算方法を変更
 #ifdef INVERSE_OPERATION_USING_EIGENVALUE
@@ -442,6 +478,7 @@ int main(int argc, char **argv)
             if(costFromMCMPC < costFromQHPMethod)
             {
                 est_input = MCMPC_U;
+                // est_input = Proposed_U;
                 if(1 <= Judge_Hess){
                     counter = -1;
                 }else{
@@ -456,17 +493,19 @@ int main(int argc, char **argv)
 #ifdef WRITE_MATRIX_INFORMATION
         // hessianの固有値・固有ベクトルをファイルに書き込む
         if(t < 200){
-            if(t % 30 == 0){
+            if(t % 10 == 0){
                 get_timeParam(timerParam, timeObject->tm_mon + 1, timeObject->tm_mday, timeObject->tm_hour, timeObject->tm_min, t);
                 LSM_QHP_transpose<<<HORIZON, HORIZON>>>(invGmHessSsymm, Hessian);
-                CHECK(cudaMemcpy(HESSIAN_MATRIX, invGmHessSsymm, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost));
-                write_Matrix_Information( hostCovEig, HESSIAN_MATRIX, timerParam);
+                CHECK( cudaMemcpy(HESSIAN_MATRIX, invGmHessSsymm, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost));
+                CHECK( cudaMemcpy(hostCov, Hvector, sizeof(float) * HORIZON, cudaMemcpyDeviceToHost) );
+                write_Matrix_Information( hostCovEig, hostCov, HESSIAN_MATRIX, timerParam);
             }
         }else{
             if( t % 100 == 0){
                 get_timeParam(timerParam, timeObject->tm_mon + 1, timeObject->tm_mday, timeObject->tm_hour, timeObject->tm_min, t);
                 CHECK(cudaMemcpy(HESSIAN_MATRIX, Hessian, sizeof(float) * dimHessian, cudaMemcpyDeviceToHost));
-                write_Matrix_Information( hostCovEig, HESSIAN_MATRIX, timerParam);
+                CHECK( cudaMemcpy(hostCov, Hvector, sizeof(float) * HORIZON, cudaMemcpyDeviceToHost) );
+                write_Matrix_Information( hostCovEig, hostCov, HESSIAN_MATRIX, timerParam);
             }
         }
 #endif
@@ -477,7 +516,12 @@ int main(int argc, char **argv)
             hostState[k] = hostState[k] + (interval * hostDiffState[k]);
         }*/
         cudaMemcpy(deviceState, hostState, sizeof(float) * DIM_OF_STATES, cudaMemcpyHostToDevice);
+#ifdef EVALUATE_FITTING_ACCURACY
+        fprintf(fp,"%f %f %f %f %f %f %f %f %f %f %f %f %f %d %f\n", interval * t, est_input, MCMPC_U, Proposed_U, hostState[0], hostState[1], hostState[2], hostState[3], costFromMCMPC, costFromQHPMethod, costFromMCMPC - costFromQHPMethod, process_gpu_time/1000,procedure_all_time / CLOCKS_PER_SEC, counter, fittingCost);
+        fprintf(FP_FITTING, "%d\n", counter);
+#else
         fprintf(fp,"%f %f %f %f %f %f %f %f %f %f %f %f %f %d\n", interval * t, est_input, MCMPC_U, Proposed_U, hostState[0], hostState[1], hostState[2], hostState[3], costFromMCMPC, costFromQHPMethod, costFromMCMPC - costFromQHPMethod, process_gpu_time/1000,procedure_all_time / CLOCKS_PER_SEC, counter);
+#endif
         printf("u == %f MCMPC == %f  Proposed == %f  MCMPC - Proposed == %f  NegEigValue = %d\n", est_input,  costFromMCMPC, costFromQHPMethod, costFromMCMPC - costFromQHPMethod, Judge_Hess);
         Judge_Hess = 0;
     }

@@ -17,6 +17,7 @@ typedef struct{
     // float Input[HORIZON];
     float tensor_vector[sizeOfParaboloidElements];
     float column_vector[sizeOfParaboloidElements];
+    float QplaneValue;
 
 }QuadHyperPlane;
 

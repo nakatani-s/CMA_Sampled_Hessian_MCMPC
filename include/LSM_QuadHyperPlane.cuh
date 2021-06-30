@@ -14,6 +14,8 @@
 
 
 unsigned int count_QHP_Parameters(int hor);
+float evaluate_fitting_accuracy( QuadHyperPlane *qhp, int denominator);
+
 __global__ void LSM_QHP_make_tensor_vector(QuadHyperPlane *output, InputVector *input, int *indices);
 __global__ void LSM_QHP_make_regular_matrix_over_ThreadPerBlockLimit(float *outRmatrix, QuadHyperPlane *elements, int sumSet, int Ydimention);
 __global__ void LSM_QHP_make_regular_matrix(float *outRmatrix, QuadHyperPlane *elements, int sumSet);
@@ -28,3 +30,5 @@ __global__ void LSM_QHP_make_symmetric(float *Out, float *In);
 __global__ void LSM_QHP_transpose(float *Out, float *In);
 
 __global__ void LSM_Hessian_To_Positive_Symmetric(float *Hess);
+
+__global__ void LSM_evaluation_fittingAccuravy(QuadHyperPlane *ansVlaues, float *Hess, float *Grad, float *R, InputVector *datas, int *indices);

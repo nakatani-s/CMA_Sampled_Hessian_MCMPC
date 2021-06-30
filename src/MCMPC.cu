@@ -72,6 +72,22 @@ __global__ void callback_elite_sample(InputVector *devOut, InputVector *devIn, i
 }
 
 
+__global__ void WeightRecalculation( InputVector *devIn, int *indices)
+{
+    unsigned int id = threadIdx.x + blockIdx.x * blockDim.x;
+    float lambda = 0.5f;
+    float mlambda = 0.25f;
+    float variable;
+    float variableForWHM;
+    variable = (devIn[id].L - devIn[indices[0]].L) / lambda;
+    variableForWHM = (devIn[id].L - devIn[indices[0]].L) / mlambda;
+    devIn[id].W = exp(-variable);
+    devIn[id].WHM = exp(-variableForWHM);
+    // devIn[id].WHM = 1 / devIn[id].L;
+    // devIn[id].WHM = 1.0f;
+    __syncthreads();
+}
+
 __device__ float gen_u(unsigned int id, curandState *state, float ave, float vr) {
     float u;
     curandState localState = state[id];
@@ -82,12 +98,18 @@ __device__ float gen_u(unsigned int id, curandState *state, float ave, float vr)
 __device__ float inputGenerator(int t, float mean, float var, float *Cov, float *z)
 {
     int index;
-    index = t * HORIZON;
+    if( t == 0){
+        index = t;
+    }else{
+        // index = t;
+        index = t * HORIZON;
+    }
     float ans, temp;
     temp = 0.0f;
     for(int k = 0; k < HORIZON; k++)
     {
-        temp += Cov[ index + k ] * z[k];
+        // temp += Cov[ index + k * HORIZON] * z[k];
+        temp += Cov[ index + k] * z[k];
     }
 
     ans = mean + var * temp;
@@ -183,6 +205,7 @@ __global__ void MCMPC_Crat_and_SinglePole(float *state, curandState *randomSeed,
         if(u[t] > d_constraints[1]){
             u[t] = d_constraints[1];
         }
+
         // まずは、オイラー積分（100Hz 40stepで倒立できるか）　→　0.4秒先まで予測
         // 問題が起きたら、0次ホールダーでやってみる、それでもダメならMPCの再設計
         /*dstateInThisThreads[0] = stateInThisThreads[2];
@@ -193,7 +216,7 @@ __global__ void MCMPC_Crat_and_SinglePole(float *state, curandState *randomSeed,
         stateInThisThreads[3] = stateInThisThreads[3] + (interval * dstateInThisThreads[3]);
         stateInThisThreads[0] = stateInThisThreads[0] + (interval * dstateInThisThreads[0]);
         stateInThisThreads[1] = stateInThisThreads[1] + (interval * dstateInThisThreads[1]);*/
-        for(int sec = 0; sec < 2; sec++){
+        for(int sec = 0; sec < 1; sec++){
             dstateInThisThreads[0] = stateInThisThreads[2];
             dstateInThisThreads[1] = stateInThisThreads[3];
             dstateInThisThreads[2] = Cart_type_Pendulum_ddx(u[t], stateInThisThreads[0], stateInThisThreads[1], stateInThisThreads[2], stateInThisThreads[3], d_param); //ddx
@@ -204,20 +227,33 @@ __global__ void MCMPC_Crat_and_SinglePole(float *state, curandState *randomSeed,
             stateInThisThreads[1] = stateInThisThreads[1] + (interval * dstateInThisThreads[1]);
         }
 
-        while(stateInThisThreads[1] > M_PI)
+        /*while(stateInThisThreads[1] > M_PI)
             stateInThisThreads[1] -= (2 * M_PI);
         while(stateInThisThreads[1] < -M_PI)
-            stateInThisThreads[1] += (2 * M_PI);
+            stateInThisThreads[1] += (2 * M_PI);*/
 
         // upper side: MATLAB　で使用している評価関数を参考    
         /* qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
             + u[t] * u[t] * d_matrix[3]; */
-        qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
+        /*qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
+            + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3]
+            + u[t] * u[t] * d_matrix[4];*/
+        qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + sinf(stateInThisThreads[1] / 2) * sinf(stateInThisThreads[1]/2) * d_matrix[1]
             + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3]
             + u[t] * u[t] * d_matrix[4];
+        if(t == HORIZON -1){
+            qx += stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + sinf(stateInThisThreads[1] / 2) * sinf(stateInThisThreads[1]/2) * d_matrix[1]
+            + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3];
+
+            // qx += stateInThisThreads[0] * stateInThisThreads[0] * (d_matrix[0] + 2.0f) + sinf(stateInThisThreads[1] / 2) * sinf(stateInThisThreads[1]/2) * d_matrix[1]
+            // + stateInThisThreads[2] * stateInThisThreads[2] * (d_matrix[2] + 0.04f) + stateInThisThreads[3] * stateInThisThreads[3] * (d_matrix[3] + 0.009f);
+        }
+        /*qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + (1 - cosf(stateInThisThreads[1])) * (1 - cosf(stateInThisThreads[1])) * d_matrix[1]
+            + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3]
+            + u[t] * u[t] * d_matrix[4];*/
         
         // constraints described by Barrier Function Method
-        if(stateInThisThreads[0] <= 0){
+        /*if(stateInThisThreads[0] <= 0){
             qx += 1 / (powf(stateInThisThreads[0] - d_constraints[2],2) * invBarrier);
             if(stateInThisThreads[0] < d_constraints[2]){
                 qx += 1000000;
@@ -227,7 +263,7 @@ __global__ void MCMPC_Crat_and_SinglePole(float *state, curandState *randomSeed,
             if(stateInThisThreads[0] > d_constraints[3]){
                 qx += 1000000;
             }
-        }
+        }*/
 
         total_cost += qx;
 
@@ -240,16 +276,16 @@ __global__ void MCMPC_Crat_and_SinglePole(float *state, curandState *randomSeed,
     }
     float KL_COST, S, lambda, HM_COST, HM;
     //int NomarizationCost = sizeOfParaboloidElements + addTermForLSM; //LSMでparaboloidをフィッティングする際に行列の
-    lambda = 2 * HORIZON;
-    HM = total_cost / (0.75*HORIZON); //0.75
+    lambda = 0.5 * HORIZON;
+    HM = total_cost / (0.25*HORIZON); //0.75
     S = total_cost / lambda;
     KL_COST = exp(-S);
     HM_COST = exp(-HM);
     __syncthreads();
     d_data[id].WHM = HM_COST;
     d_data[id].W = KL_COST;
-    d_data[id].L = total_cost / sizeOfParaboloidElements;
-    //d_data[id].L = total_cost;
+    // d_data[id].L = total_cost / sizeOfParaboloidElements;
+    d_data[id].L = total_cost / HORIZON;
     cost_vec[id] = total_cost;
     for(int index = 0; index < HORIZON; index++){
         d_data[id].Input[index] = u[index];
@@ -277,8 +313,8 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
     for(int t_u = 0; t_u < HORIZON; t_u++)
     {
         z[t_u] = gen_u( id, r_seed, 0.0f, 1.0f);
-        // seq += NUM_OF_SAMPLES;
-        seq += HORIZON;
+        seq += NUM_OF_SAMPLES;
+        // seq += HORIZON;
     }
     __syncthreads( );
 
@@ -294,7 +330,7 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
             u[t] = d_constraints[1];
         }
 
-        for(int sec = 0; sec < 2; sec++){
+        for(int sec = 0; sec < 1; sec++){
             dstateInThisThreads[0] = stateInThisThreads[2];
             dstateInThisThreads[1] = stateInThisThreads[3];
             dstateInThisThreads[2] = Cart_type_Pendulum_ddx(u[t], stateInThisThreads[0], stateInThisThreads[1], stateInThisThreads[2], stateInThisThreads[3], d_param); //ddx
@@ -305,20 +341,32 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
             stateInThisThreads[1] = stateInThisThreads[1] + (interval * dstateInThisThreads[1]);
         }
 
-        while(stateInThisThreads[1] > M_PI)
+        /*while(stateInThisThreads[1] > M_PI)
             stateInThisThreads[1] -= (2 * M_PI);
         while(stateInThisThreads[1] < -M_PI)
-            stateInThisThreads[1] += (2 * M_PI);
+            stateInThisThreads[1] += (2 * M_PI);*/
 
         // upper side: MATLAB　で使用している評価関数を参考    
         /* qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
             + u[t] * u[t] * d_matrix[3]; */
-        qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
+        /*qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + stateInThisThreads[1] * stateInThisThreads[1] * d_matrix[1]
+            + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3]
+            + u[t] * u[t] * d_matrix[4];*/
+        qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + sinf(stateInThisThreads[1] / 2) * sinf(stateInThisThreads[1]/2) * d_matrix[1]
             + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3]
             + u[t] * u[t] * d_matrix[4];
-        
+        if(t == HORIZON -1){
+            qx += stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + sinf(stateInThisThreads[1] / 2) * sinf(stateInThisThreads[1]/2) * d_matrix[1]
+            + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3];
+
+            // qx += stateInThisThreads[0] * stateInThisThreads[0] * (d_matrix[0] + 2.0f) + sinf(stateInThisThreads[1] / 2) * sinf(stateInThisThreads[1]/2) * d_matrix[1]
+            // + stateInThisThreads[2] * stateInThisThreads[2] * (d_matrix[2] + 0.04f) + stateInThisThreads[3] * stateInThisThreads[3] * (d_matrix[3] + 0.009f);
+        }
+        /*qx = stateInThisThreads[0] * stateInThisThreads[0] * d_matrix[0] + (1 - cosf(stateInThisThreads[1])) * (1 - cosf(stateInThisThreads[1])) * d_matrix[1]
+            + stateInThisThreads[2] * stateInThisThreads[2] * d_matrix[2] + stateInThisThreads[3] * stateInThisThreads[3] * d_matrix[3]
+            + u[t] * u[t] * d_matrix[4];*/
         // constraints described by Barrier Function Method
-        if(stateInThisThreads[0] <= 0){
+        /*if(stateInThisThreads[0] <= 0){
             qx += 1 / (powf(stateInThisThreads[0] - d_constraints[2],2) * invBarrier);
             if(stateInThisThreads[0] < d_constraints[2]){
                 qx += 1000000;
@@ -328,7 +376,7 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
             if(stateInThisThreads[0] > d_constraints[3]){
                 qx += 1000000;
             }
-        }
+        }*/
 
         total_cost += qx;
 
@@ -341,16 +389,16 @@ __global__ void CMAMCMPC_Cart_and_SinglePole(float *state, curandState *r_seed, 
     }
     float KL_COST, S, lambda, HM_COST, HM;
     //int NomarizationCost = sizeOfParaboloidElements + addTermForLSM; //LSMでparaboloidをフィッティングする際に行列の
-    lambda = 2 * HORIZON;
-    HM = total_cost / (0.1*HORIZON); //0.75
+    lambda = 0.5 * HORIZON;
+    HM = total_cost / (0.25*HORIZON); //0.75
     S = total_cost / lambda;
     KL_COST = exp(-S);
     HM_COST = exp(-HM);
     __syncthreads();
     d_data[id].WHM = HM_COST;
     d_data[id].W = KL_COST;
-    d_data[id].L = total_cost / sizeOfParaboloidElements;
-    //d_data[id].L = total_cost;
+    // d_data[id].L = total_cost / sizeOfParaboloidElements;
+    d_data[id].L = total_cost / HORIZON;
     cost_vec[id] = total_cost;
     for(int index = 0; index < HORIZON; index++){
         d_data[id].Input[index] = u[index];
